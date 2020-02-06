@@ -88,7 +88,7 @@ class _PacketModbusRTU(threaded.Protocol):
 
     def connection_lost(self, exc):
         """Forget transport"""
-        print('lost: ', self.transport)
+        #print('lost: ', self.transport)
         self.transport = None
         super(_PacketModbusRTU, self).connection_lost(exc)
 
@@ -99,7 +99,6 @@ class _PacketModbusRTU(threaded.Protocol):
         '''
         CRC-16-ModBus Algorithm
         '''
-        #data = bytearray(data)
         poly = 0xA001
         crc = 0xFFFF
         for b in data:
@@ -112,15 +111,16 @@ class _PacketModbusRTU(threaded.Protocol):
         return  crc
 
 
-    async def data_received(self, data):
+    def data_received(self, data):
         """Buffer received data, find TERMINATOR, call handle_packet"""
         if self.adr and self._current_command:
             with self.lock:
                 self.buffer.extend(data)
-                if (self.buffer[0] == self.adr) and (self.buffer[1] == self._current_command) and (self.crc16(self.buffer) == 0):
+                if (len(self.buffer) > 3) and (self.buffer[0] == self.adr) and (self.buffer[1] == self._current_command) and (self.crc16(self.buffer) == 0):
                     self._current_command = None
                     self.read_event.set()        
-        print(self.buffer.hex(','))
+        #print(self.buffer.hex(','))
+        print(data)
         #while self.TERMINATOR in self.buffer:
         #    packet, self.buffer = self.buffer.split(self.TERMINATOR, 1)
         #    self.handle_packet(packet)
@@ -130,6 +130,8 @@ class _PacketModbusRTU(threaded.Protocol):
             indata.extend(self.tobytearray(data))
         elif type(data) in [bytearray, bytes, str]:
             indata.extend(data)
+        else:
+            indata.extend(bytearray(data))
         indata.extend(self.tobytearray(self.crc16(indata)))
         print(indata.hex(',')) 
         with self.lock:
@@ -140,7 +142,7 @@ class _PacketModbusRTU(threaded.Protocol):
             (adr, cmd,  *data, crch, crcl) = self.buffer.copy()
             return (adr, cmd,  *data, crch, crcl)
 
-async def main():
+def main():
         
     if args.comports:   
         ports = list(sorted(comports()))     
@@ -150,27 +152,21 @@ async def main():
         else:
             print("COM ports not found!!!")  
     else:
-        BAUD=125000
-        com = Serial(args.com, 
-            baudrate=BAUD, 
-            timeout=2.097152, 
-            inter_byte_timeout=35/BAUD)
+        BAUD=115200
+        com = Serial(args.com, baudrate=BAUD)
         com.adr = args.adr
-        if not com.is_open: com.open()
         with threaded.ReaderThread(com, _PacketModbusRTU) as modbus:
-            #module.reset()
             print("Modbus reset OK")
-            #print("MAC address is", bt_module.get_mac_address())        
-            await asyncio.sleep(5)
             if args.test:
-                MAGIC = 0x12345678 
-                await modbus.command(0xF8, MAGIC)
-            await asyncio.sleep(5)
-        print(com)
-        print(args.com, args.adr, args.test, args.verify, args.read, args.prog)
+#                MAGIC = 0x12345678 
+#                modbus.command(0xF8, MAGIC)
+                print(modbus.command(3,(0,0,0, 0xA)))
+        #print(com)
 
     
 
 if __name__ == "__main__":
     parse_args()
-    asyncio.run(main())
+    print(args.com, args.adr, args.test, args.verify, args.read, args.prog)
+    
+    main()
