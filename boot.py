@@ -7,8 +7,6 @@ from os import path
 from serial import Serial, threaded
 from serial.tools.list_ports import comports
 import threading
-#from ctypes import uint16
-#import numpy
 
 class _AdrAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
