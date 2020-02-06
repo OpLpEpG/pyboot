@@ -160,7 +160,8 @@ def main():
             if args.test:
 #                MAGIC = 0x12345678 
 #                modbus.command(0xF8, MAGIC)
-                print(modbus.command(3,(0,0,0, 0xA)))
+                res = modbus.command(3,(0,0,0, 0xA))
+                print(res)
         #print(com)
 
     
@@ -168,5 +169,5 @@ def main():
 if __name__ == "__main__":
     parse_args()
     print(args.com, args.adr, args.test, args.verify, args.read, args.prog)
-    
+
     main()
