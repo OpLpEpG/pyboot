@@ -94,6 +94,9 @@ class _PacketModbusRTU(threaded.Protocol):
         self.transport = None
         super(_PacketModbusRTU, self).connection_lost(exc)
 
+    def tobytearray(self, data: int)->bytearray:
+        return bytearray(data.to_bytes((data.bit_length()+7)//8, 'little'))    
+
     def crc16(self, data: bytearray):
         '''
         CRC-16-ModBus Algorithm
@@ -126,11 +129,10 @@ class _PacketModbusRTU(threaded.Protocol):
     def command(self, command, data=None, timout=2.097152):
         indata = bytearray([self.transport.serial.adr, command])
         if type(data) is int:
-            indata.extend(data.to_bytes((data.bit_length()+7)//8, 'little'))
+            indata.extend(self.tobytearray(data))
         elif type(data) in [bytearray, bytes, str]:
             indata.extend(data)
-        crc = self.crc16(indata)
-        indata.extend(bytearray([crc & 0xFF, (crc >> 8) & 0xFF]))
+        indata.extend(self.tobytearray(self.crc16(indata)))
         print(indata.hex(',')) 
         with self.lock:
             self.buffer.clear()
