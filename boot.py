@@ -120,7 +120,7 @@ class _PacketModbusRTU(threaded.Protocol):
                 else:
                     crc = ((crc >> 1) & 0xFFFF)
         return  crc
--
+
     def data_received(self, data):
         """Buffer received data, find TERMINATOR, call handle_packet"""
         if self.adr and self._current_command:
