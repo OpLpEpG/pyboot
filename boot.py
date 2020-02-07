@@ -92,8 +92,19 @@ class _PacketModbusRTU(threaded.Protocol):
         self.transport = None
         super(_PacketModbusRTU, self).connection_lost(exc)
 
-    def tobytearray(self, data: int)->bytearray:
-        return bytearray(data.to_bytes((data.bit_length()+7)//8, 'little'))    
+
+    def tobytearray(self, data: int, byteslen=0, byteorder = 'little')->bytearray:
+        b = byteslen or (data.bit_length()+7)//8
+        return bytearray(data.to_bytes(b, byteorder))
+
+    def words2bytes(self, words: list, byteorder = 'big')->bytearray:
+        '''
+        big endian Modbus word data
+        '''
+        res = bytearray()
+        for n in words:
+            res.extend(self.tobytearray(n, byteslen=2, byteorder=byteorder))
+        return res        
 
     def crc16(self, data: bytearray):
         '''
@@ -109,27 +120,29 @@ class _PacketModbusRTU(threaded.Protocol):
                 else:
                     crc = ((crc >> 1) & 0xFFFF)
         return  crc
-
-
+-
     def data_received(self, data):
         """Buffer received data, find TERMINATOR, call handle_packet"""
         if self.adr and self._current_command:
             with self.lock:
                 self.buffer.extend(data)
-                if (len(self.buffer) > 3) and (self.buffer[0] == self.adr) and (self.buffer[1] == self._current_command) and (self.crc16(self.buffer) == 0):
+                if ((len(self.buffer) > 3) 
+                and (self.buffer[0] == self.adr) 
+                and (self.buffer[1] == self._current_command) 
+                and (self.crc16(self.buffer) == 0)):
                     self._current_command = None
                     self.read_event.set()        
         #print(self.buffer.hex(','))
         print(data)
-        #while self.TERMINATOR in self.buffer:
-        #    packet, self.buffer = self.buffer.split(self.TERMINATOR, 1)
-        #    self.handle_packet(packet)
+
     def command(self, command, data=None, timout=2.097152):
         indata = bytearray([self.transport.serial.adr, command])
         if type(data) is int:
             indata.extend(self.tobytearray(data))
         elif type(data) in [bytearray, bytes, str]:
             indata.extend(data)
+        elif type(data) is list:
+            indata.extend(self.words2bytes(data))
         else:
             indata.extend(bytearray(data))
         indata.extend(self.tobytearray(self.crc16(indata)))
@@ -138,9 +151,7 @@ class _PacketModbusRTU(threaded.Protocol):
             self.buffer.clear()
             self._current_command = command
         self.transport.write(indata)
-        if self.read_event.wait(timout):
-            (adr, cmd,  *data, crch, crcl) = self.buffer.copy()
-            return (adr, cmd,  *data, crch, crcl)
+        return self.buffer.copy() if self.read_event.wait(timout) else None
 
 def main():
         
@@ -160,8 +171,8 @@ def main():
             if args.test:
 #                MAGIC = 0x12345678 
 #                modbus.command(0xF8, MAGIC)
-                res = modbus.command(3,(0,0,0, 0xA))
-                print(res)
+                res = modbus.command(3,[0,0xA])
+                print('result:',res)
         #print(com)
 
     
