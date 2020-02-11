@@ -21,7 +21,7 @@ import struct
 import logging
 logging.basicConfig()
 log = logging.getLogger()
-log.setLevel(logging.DEBUG)
+#log.setLevel(logging.DEBUG)
 
 class _AdrAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -163,17 +163,17 @@ def main():
                     print(f'return magic: 0x{result.magic[0]:x}')
             if args.read:                    
                 if args.endmemory < 0x08000000: 
-                    args.endmemory += Commands.MEMORY_START
+                    args.endmemory += args.beginmemory
                 ma = args.beginmemory
                 print(f'write: {args.read}')
                 with open(args.read,'wb') as memoryfile:
-                    while ma <= args.endmemory:
+                    while ma < args.endmemory:
                         request = ReadReq(ma, unit=args.adr)
                         result = client.execute(request)
                         memoryfile.write(result.memory)
                         ma += Commands.PART_STD
                         print('.',end='')
-                print(f'close: {args.read}')
+                print(f'\nclose: {args.read}')
                     
 
 
