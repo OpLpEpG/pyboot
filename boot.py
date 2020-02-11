@@ -141,6 +141,91 @@ class ReadRes(ModbusResponse):
         self.memory = data[4:]
 
 
+<<<<<<< HEAD
+=======
+class _PacketModbusRTU(threaded.Protocol):    
+
+    def __init__(self):
+        self.buffer = bytearray()
+        self.transport = None
+        self.adr=None
+        self._current_command=None
+        self.lock = threading.Lock()
+        self.read_event = threading.Event()
+
+    def connection_made(self, transport):
+        """Store transport"""
+        self.transport = transport
+        self.adr = transport.serial.adr 
+       # print('transport: ', self.transport.__class__)
+
+    def connection_lost(self, exc):
+        """Forget transport"""
+        #print('lost: ', self.transport)
+        self.transport = None
+        super(_PacketModbusRTU, self).connection_lost(exc)
+
+
+    def tobytearray(self, data: int, byteslen=0, byteorder = 'little')->bytearray:
+        b = byteslen or (data.bit_length()+7)//8
+        return bytearray(data.to_bytes(b, byteorder))
+
+    def words2bytes(self, words: list, byteorder = 'big')->bytearray:
+        '''
+        big endian Modbus word data
+        '''
+        res = bytearray()
+        for n in words:
+            res.extend(self.tobytearray(n, byteslen=2, byteorder=byteorder))
+        return res        
+
+    def crc16(self, data: bytearray):
+        '''
+        CRC-16-ModBus Algorithm
+        '''
+        poly = 0xA001
+        crc = 0xFFFF
+        for b in data:
+            crc ^= (0xFF & b)
+            for _ in range(0, 8):
+                if (crc & 0x0001):
+                    crc = ((crc >> 1) & 0xFFFF) ^ poly
+                else:
+                    crc = ((crc >> 1) & 0xFFFF)
+        return  crc
+
+    def data_received(self, data):
+        """Buffer received data, find TERMINATOR, call handle_packet"""
+        if self.adr and self._current_command:
+            with self.lock:
+                self.buffer.extend(data)
+                if ((len(self.buffer) > 3) 
+                and (self.buffer[0] == self.adr) 
+                and (self.buffer[1] == self._current_command) 
+                and (self.crc16(self.buffer) == 0)):
+                    self._current_command = None
+                    self.read_event.set()        
+        #print(self.buffer.hex(','))
+        print(data)
+
+    def command(self, command, data=None, timout=2.097152):
+        indata = bytearray([self.transport.serial.adr, command])
+        if type(data) is int:
+            indata.extend(self.tobytearray(data))
+        elif type(data) in [bytearray, bytes, str]:
+            indata.extend(data)
+        elif type(data) is list:
+            indata.extend(self.words2bytes(data))
+        else:
+            indata.extend(bytearray(data))
+        indata.extend(self.tobytearray(self.crc16(indata)))
+        print(indata.hex(',')) 
+        with self.lock:
+            self.buffer.clear()
+            self._current_command = command
+        self.transport.write(indata)
+        return self.buffer.copy() if self.read_event.wait(timout) else None
+>>>>>>> 3cb6cc33b90369fbb43533c84d07951939a8629d
 
 def main():
         
@@ -157,6 +242,7 @@ def main():
             client.register(BootRes)
             client.register(ReadRes)
             if args.test:
+<<<<<<< HEAD
                 request = BootReq(unit=args.adr)
                 result = client.execute(request)
                 if isinstance(result, BootRes):
@@ -176,6 +262,13 @@ def main():
                 print(f'\nclose: {args.read}')
                     
 
+=======
+#                MAGIC = 0x12345678 
+#                modbus.command(0xF8, MAGIC)
+                res = modbus.command(3,[0,0xA])
+                print('result:',res)
+        #print(com)
+>>>>>>> 3cb6cc33b90369fbb43533c84d07951939a8629d
 
     
 
