@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["COM8", "-a 27", "-t"]
+            "args": ["COM8", "-a 27","-b 0x08000000", "-e 0x1000", "-r memory.bin"]
         }
     ]
 }
