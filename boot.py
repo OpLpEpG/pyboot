@@ -63,12 +63,12 @@ def parse_args():
     parser.add_argument(
         '-b','--beginmemory', 
         type=lambda x: int(x,0), 
-        default=Commands.MEMORY_START,
+        default=MEMORY_START,
         help="you mast select device memory start address, default=0x08001000")
     parser.add_argument(
         '-e','--endmemory', 
         type=lambda x: int(x,0), 
-        default=Commands.MEMORY_END,
+        default=MEMORY_END,
         help="you mast select device end address or length, default=0x08020000")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
@@ -96,21 +96,20 @@ def parse_args():
         help="program device")
     args = parser.parse_args()
 
-class Commands():
-    CMD_BOOT=100
-    CMD_READ=101
-    CMD_BOOT_EXIT=102
-    CMD_WRITE=103
-    MAGIC=0x12345678
-    MEMORY_START=0x08001000
-    MEMORY_END=0x08020000
-    PART_STD=128
+CMD_BOOT=100
+CMD_READ=101
+CMD_BOOT_EXIT=102
+CMD_WRITE=103
+MAGIC=0x12345678
+MEMORY_START=0x08001000
+MEMORY_END=0x08020000
+PART_STD=128
 
 class BootReq(ModbusRequest):
-    function_code = Commands.CMD_BOOT
+    function_code = CMD_BOOT
     _rtu_frame_size = 1+1+4+2
 
-    def __init__(self, magic=Commands.MAGIC, **kwargs):
+    def __init__(self, magic=MAGIC, **kwargs):
         ModbusRequest.__init__(self, **kwargs)
         self.magic = magic
 
@@ -118,14 +117,14 @@ class BootReq(ModbusRequest):
         return struct.pack('<L', self.magic)
 
 class BootRes(ModbusResponse):
-    function_code = Commands.CMD_BOOT
+    function_code = CMD_BOOT
     _rtu_frame_size = 1+1+4+2
 
     def decode(self, data):
         self.magic = struct.unpack('<L', data)[0]
 
 class ReadReq(ModbusRequest):
-    function_code = Commands.CMD_READ
+    function_code = CMD_READ
     _rtu_frame_size = 1+1+4+2
 
     def __init__(self, memoryadr, **kwargs):
@@ -136,30 +135,30 @@ class ReadReq(ModbusRequest):
         return struct.pack('<L', self.memoryadr)
 
 class ReadRes(ModbusResponse):
-    function_code = Commands.CMD_READ
-    _rtu_frame_size = 1+1+4+Commands.PART_STD+2
+    function_code = CMD_READ
+    _rtu_frame_size = 1+1+4+PART_STD+2
 
     def decode(self, data):
         self.adr = struct.unpack('<L', data[0:4])[0]
         self.memory = data[4:]
 
 class BootExitReq(ModbusRequest):
-    function_code = Commands.CMD_BOOT_EXIT
+    function_code = CMD_BOOT_EXIT
     _rtu_frame_size = 1+1+2
 
     def encode(self):
         return b'' 
 
 class BootExitRes(ModbusResponse):
-    function_code = Commands.CMD_BOOT_EXIT
+    function_code = CMD_BOOT_EXIT
     _rtu_frame_size = 1+1+2
 
     def decode(self, data):
         self.exit = 1
 
 class WriteReq(ModbusRequest):
-    function_code = Commands.CMD_WRITE
-    _rtu_frame_size = 1+1+4+Commands.PART_STD+2
+    function_code = CMD_WRITE
+    _rtu_frame_size = 1+1+4+PART_STD+2
 
     def __init__(self, memoryadr, data, **kwargs):
         ModbusRequest.__init__(self, **kwargs)
@@ -170,7 +169,7 @@ class WriteReq(ModbusRequest):
         return struct.pack('<Ls', self.memoryadr, self.data)
 
 class WriteRes(ModbusResponse):
-    function_code = Commands.CMD_WRITE
+    function_code = CMD_WRITE
     _rtu_frame_size = 1+1+4+4+2
 
     def decode(self, data):
@@ -223,7 +222,7 @@ def main():
                         args.endmemory += args.beginmemory
                     print(f'write: {args.read}')
                     with open(args.read,'wb') as f:
-                        with click.progressbar(range(args.beginmemory, args.endmemory, Commands.PART_STD)) as bar:
+                        with click.progressbar(range(args.beginmemory, args.endmemory, PART_STD)) as bar:
                             for ma in bar:
                                 request = ReadReq(ma, unit=args.adr)
                                 result = client.execute(request)
@@ -238,13 +237,13 @@ def main():
                     with open(args.verify,'rb') as f:
                         em = args.beginmemory + f.tell()
                         errcnt=0
-                        with click.progressbar(range(args.beginmemory, em, Commands.PART_STD)) as bar:
+                        with click.progressbar(range(args.beginmemory, em, PART_STD)) as bar:
                             for ma in bar:
                                 if errcnt > 15:
                                     break
                                 request = ReadReq(ma, unit=args.adr)
                                 result = client.execute(request)
-                                file = f.read(Commands.PART_STD)
+                                file = f.read(PART_STD)
                                 for i in range(len(file)):
                                     if file[i] != result.memory[i]:
                                         errcnt += 1
@@ -264,18 +263,18 @@ def main():
                     with open(args.prog,'rb') as f:
                         p = bytearray(f.read())
                         # correct size
-                        r = len(p) % Commands.PART_STD
+                        r = len(p) % PART_STD
                         if r:
-                            p.extend(b'\0'*(Commands.PART_STD-r))
+                            p.extend(b'\0'*(PART_STD-r))
                         # check file
                         (stak, enter) = struct.unpack('<LL', p[0:8])
                         if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
                             raise f'bad file data stack: {stak:x} prog enter: {enter:x}'
                         # start
-                        with click.progressbar(range(args.beginmemory, args.beginmemory + len(p), Commands.PART_STD)) as bar:
+                        with click.progressbar(range(args.beginmemory, args.beginmemory + len(p), PART_STD)) as bar:
                             for ma in bar:
                                 for i in range(5):
-                                    request = WriteReq(ma, p[ma:ma+Commands.PART_STD], unit=args.adr)
+                                    request = WriteReq(ma, p[ma:ma+PART_STD], unit=args.adr)
                                     result = client.execute(request)
                                     if isinstance(result, WriteReq) and result.err in [0xFFFFFFFE, 0xFFFFFFFF]:
                                         break
@@ -285,11 +284,6 @@ def main():
                                 print('programm OK')
                 finally:
                     exit_boot()
-
-                    
-
-
-    
 
 if __name__ == "__main__":
     parse_args()
