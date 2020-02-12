@@ -15,6 +15,9 @@ import pymodbus.framer.rtu_framer
 from pymodbus.client.sync import ModbusSerialClient as ModbusClient
 import struct
 
+import click
+
+
 # --------------------------------------------------------------------------- #
 # configure the client logging
 # --------------------------------------------------------------------------- #
@@ -119,7 +122,7 @@ class BootRes(ModbusResponse):
     _rtu_frame_size = 1+1+4+2
 
     def decode(self, data):
-        self.magic = struct.unpack('<L', data)
+        self.magic = struct.unpack('<L', data)[0]
 
 class ReadReq(ModbusRequest):
     function_code = Commands.CMD_READ
@@ -137,10 +140,41 @@ class ReadRes(ModbusResponse):
     _rtu_frame_size = 1+1+4+Commands.PART_STD+2
 
     def decode(self, data):
-        self.adr = struct.unpack('<L', data[0:4])
+        self.adr = struct.unpack('<L', data[0:4])[0]
         self.memory = data[4:]
 
+class BootExitReq(ModbusRequest):
+    function_code = Commands.CMD_BOOT_EXIT
+    _rtu_frame_size = 1+1+2
 
+    def encode(self):
+        return b'' 
+
+class BootExitRes(ModbusResponse):
+    function_code = Commands.CMD_BOOT_EXIT
+    _rtu_frame_size = 1+1+2
+
+    def decode(self, data):
+        self.exit = 1
+
+class WriteReq(ModbusRequest):
+    function_code = Commands.CMD_WRITE
+    _rtu_frame_size = 1+1+4+Commands.PART_STD+2
+
+    def __init__(self, memoryadr, data, **kwargs):
+        ModbusRequest.__init__(self, **kwargs)
+        self.memoryadr = memoryadr
+        self.data = data
+
+    def encode(self):
+        return struct.pack('<Ls', self.memoryadr, self.data)
+
+class WriteRes(ModbusResponse):
+    function_code = Commands.CMD_WRITE
+    _rtu_frame_size = 1+1+4+4+2
+
+    def decode(self, data):
+        (self.adr, self.err) = struct.unpack('<LL', data)
 
 def main():
         
@@ -155,25 +189,103 @@ def main():
         BAUD=115200
         with ModbusClient(method='rtu', port=args.com, baudrate=BAUD) as client:
             client.register(BootRes)
+            client.register(BootExitRes)
             client.register(ReadRes)
+            client.register(WriteRes)
+            def enter_boot():
+                for i in range(4):
+                    print(f'enter boot: {i}')
+                    request = BootReq(unit=args.adr)
+                    result = client.execute(request)
+                    if isinstance(result, BootRes) and (result.magic == request.magic): 
+                        print(f'in boot: {i}')
+                        break
+                else:
+                    raise 'Can`t enter bootloader !!!'
+
+            def exit_boot():
+                for i in range(4):
+                    print(f'exit boot: {i}')
+                    result = client.execute(BootExitReq(unit=args.adr))
+                    if isinstance(result, BootExitRes): 
+                        print(f'in program: {i}')
+                        break
+                else:
+                    raise 'Can`t exit bootloader !!!'
+
             if args.test:
-                request = BootReq(unit=args.adr)
-                result = client.execute(request)
-                if isinstance(result, BootRes):
-                    print(f'return magic: 0x{result.magic[0]:x}')
-            if args.read:                    
-                if args.endmemory < 0x08000000: 
-                    args.endmemory += args.beginmemory
-                ma = args.beginmemory
-                print(f'write: {args.read}')
-                with open(args.read,'wb') as memoryfile:
-                    while ma < args.endmemory:
-                        request = ReadReq(ma, unit=args.adr)
-                        result = client.execute(request)
-                        memoryfile.write(result.memory)
-                        ma += Commands.PART_STD
-                        print('.',end='')
-                print(f'\nclose: {args.read}')
+                enter_boot()
+                exit_boot()
+            elif args.read:                    
+                enter_boot()
+                try:
+                    if args.endmemory < 0x08000000: 
+                        args.endmemory += args.beginmemory
+                    print(f'write: {args.read}')
+                    with open(args.read,'wb') as f:
+                        with click.progressbar(range(args.beginmemory, args.endmemory, Commands.PART_STD)) as bar:
+                            for ma in bar:
+                                request = ReadReq(ma, unit=args.adr)
+                                result = client.execute(request)
+                                f.write(result.memory)
+                    print(f'close: {args.read}')
+                finally:
+                    exit_boot()
+            elif args.verify:                    
+                enter_boot()
+                try:
+                    print(f'verify: {args.verify}')
+                    with open(args.verify,'rb') as f:
+                        em = args.beginmemory + f.tell()
+                        errcnt=0
+                        with click.progressbar(range(args.beginmemory, em, Commands.PART_STD)) as bar:
+                            for ma in bar:
+                                if errcnt > 15:
+                                    break
+                                request = ReadReq(ma, unit=args.adr)
+                                result = client.execute(request)
+                                file = f.read(Commands.PART_STD)
+                                for i in range(len(file)):
+                                    if file[i] != result.memory[i]:
+                                        errcnt += 1
+                                        ea = ma+i
+                                        fp = ea-args.beginmemory
+                                        print(f'{errcnt}: adr: {ea:x}-{fp:x} file|mem :{file[i]:x}|{result.memory[i]:x}')
+                                        if errcnt > 15:
+                                            break
+                            else:
+                                print('verivy OK')
+                finally:
+                    exit_boot()
+            elif args.prog:
+                enter_boot()
+                try:
+                    print(f'program flash: {args.prog}')
+                    with open(args.prog,'rb') as f:
+                        p = bytearray(f.read())
+                        # correct size
+                        r = len(p) % Commands.PART_STD
+                        if r:
+                            p.extend(b'\0'*(Commands.PART_STD-r))
+                        # check file
+                        (stak, enter) = struct.unpack('<LL', p[0:8])
+                        if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
+                            raise f'bad file data stack: {stak:x} prog enter: {enter:x}'
+                        # start
+                        with click.progressbar(range(args.beginmemory, args.beginmemory + len(p), Commands.PART_STD)) as bar:
+                            for ma in bar:
+                                for i in range(5):
+                                    request = WriteReq(ma, p[ma:ma+Commands.PART_STD], unit=args.adr)
+                                    result = client.execute(request)
+                                    if isinstance(result, WriteReq) and result.err in [0xFFFFFFFE, 0xFFFFFFFF]:
+                                        break
+                                    else:
+                                        print(f'{i}: err adr: {result.err:x}')                                
+                            else:
+                                print('programm OK')
+                finally:
+                    exit_boot()
+
                     
 
 

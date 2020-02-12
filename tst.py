@@ -32,6 +32,14 @@ async def main():
     print('main2')
 
 
+import click
+import time
+
+for filename in range(3):
+    with click.progressbar(range(100)) as bar:
+        for user in bar:
+            time.sleep(0.01)
+
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
