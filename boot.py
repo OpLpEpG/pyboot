@@ -35,8 +35,9 @@ class _AdrAction(argparse.Action):
 
 class _FileExistsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
-        if path.exists(values) and path.isfile(values):                        
-            setattr(namespace, self.dest, values)
+        v =str(values).strip()
+        if path.exists(v) and path.isfile(v):                        
+            setattr(namespace, self.dest, v)
         else:
             raise ValueError('file for %s: %s not exists' % (self.dest, values))
 
@@ -166,7 +167,8 @@ class WriteReq(ModbusRequest):
         self.data = data
 
     def encode(self):
-        return struct.pack('<Ls', self.memoryadr, self.data)
+        tmp = struct.pack('<L', self.memoryadr) +  self.data
+        return tmp
 
 class WriteRes(ModbusResponse):
     function_code = CMD_WRITE
@@ -193,11 +195,11 @@ def main():
             client.register(WriteRes)
             def enter_boot():
                 for i in range(4):
-                    print(f'enter boot: {i}')
+                    print(f'{i} send: enter boot ')
                     request = BootReq(unit=args.adr)
                     result = client.execute(request)
                     if isinstance(result, BootRes) and (result.magic == request.magic): 
-                        print(f'in boot: {i}')
+                        print(f'{i} read: magic ok! in boot')
                         break
                 else:
                     raise Exception('Can`t enter bootloader !!!')
@@ -211,6 +213,15 @@ def main():
                         break
                 else:
                     raise Exception('Can`t exit bootloader !!!')
+
+            def loadFile(name)->bytearray:
+                with open(name,'rb') as f:
+                    p = bytearray(f.read())
+                    # correct size
+                    r = len(p) % PART_STD
+                    if r:
+                        p.extend(b'\0'*(PART_STD-r))
+                return p
 
             if args.test:
             #==========================================================================================
@@ -236,56 +247,53 @@ def main():
             #==========================================================================================
                 enter_boot()
                 try:
-                    print(f'verify: {args.verify}')
-                    with open(args.verify,'rb') as f:
-                        em = args.beginmemory + f.tell()
-                        errcnt=0
-                        with click.progressbar(range(args.beginmemory, em, PART_STD)) as bar:
-                            for ma in bar:
-                                if errcnt > 15:
+                    p = loadFile(args.verify)
+                    print(f'verify file: {args.verify} from {args.beginmemory:x} to {args.beginmemory+len(p):x}')
+                    errcnt=0
+                    fileidx=0
+                    with click.progressbar(range(0, len(p), PART_STD)) as bar:
+                        for ma in bar:
+                            if errcnt > 15:
+                                break
+                            request = ReadReq(args.beginmemory+ma, unit=args.adr)
+                            result = client.execute(request)
+                            for i in range(PART_STD):
+                                if p[fileidx] != result.memory[i]:
+                                    errcnt += 1
+                                    ea = args.beginmemory+ma+i
+                                    print(f'\n{errcnt}: adr: {ea:x}-{fileidx:<20x} file|mem: {p[fileidx]:<3x}<> {result.memory[i]:<3x}')
+                                    if errcnt > 15:
+                                        break
+                                fileidx += 1
+                                if fileidx >= len(p):
                                     break
-                                request = ReadReq(ma, unit=args.adr)
-                                result = client.execute(request)
-                                file = f.read(PART_STD)
-                                for i in range(len(file)):
-                                    if file[i] != result.memory[i]:
-                                        errcnt += 1
-                                        ea = ma+i
-                                        fp = ea-args.beginmemory
-                                        print(f'{errcnt}: adr: {ea:x}-{fp:x} file|mem :{file[i]:x}|{result.memory[i]:x}')
-                                        if errcnt > 15:
-                                            break
-                            else:
-                                print('verivy OK')
+                        else:
+                            a = 'OK' if errcnt == 0 else 'BAD'
+                            print(f'\nverivy {a}')
                 finally:
                     exit_boot()
             elif args.prog:
             #==========================================================================================
                 enter_boot()
                 try:
-                    print(f'program flash: {args.prog}')
-                    with open(args.prog,'rb') as f:
-                        p = bytearray(f.read())
-                        # correct size
-                        r = len(p) % PART_STD
-                        if r:
-                            p.extend(b'\0'*(PART_STD-r))
-                        # check file
-                        (stak, enter) = struct.unpack('<LL', p[0:8])
-                        if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
-                            raise Exception(f'bad file data stack: {stak:x} prog enter: {enter:x}')
-                        # start
-                        with click.progressbar(range(args.beginmemory, args.beginmemory + len(p), PART_STD)) as bar:
-                            for ma in bar:
-                                for i in range(5):
-                                    request = WriteReq(ma, p[ma:ma+PART_STD], unit=args.adr)
-                                    result = client.execute(request)
-                                    if isinstance(result, WriteReq) and result.err in [0xFFFFFFFE, 0xFFFFFFFF]:
-                                        break
-                                    else:
-                                        print(f'{i}: err adr: {result.err:x}')                                
-                            else:
-                                print('programm OK')
+                    p = loadFile(args.prog)
+                    print(f'==== program flash: {args.prog} from {args.beginmemory:x} to {args.beginmemory+len(p):x}  ====')
+                    # check file
+                    (stak, enter) = struct.unpack('<LL', p[0:8])
+                    if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
+                        raise Exception(f'bad file data stack: {stak:x} prog enter: {enter:x}')
+                    # start
+                    with click.progressbar(range(0, len(p), PART_STD)) as bar:
+                        for ma in bar:
+                            for i in range(5):
+                                request = WriteReq(args.beginmemory+ma, p[ma:ma+PART_STD], unit=args.adr)
+                                result = client.execute(request)
+                                if isinstance(result, WriteRes) and ((result.err == 0xFFFFFFFF) or (result.err == 0xFFFFFFFE)):
+                                    break
+                                else:
+                                    print(f'{i}: err adr: {result.err:x}')                                
+                        else:
+                            print('programm OK')
                 finally:
                     exit_boot()
 
