@@ -200,7 +200,7 @@ def main():
                         print(f'in boot: {i}')
                         break
                 else:
-                    raise 'Can`t enter bootloader !!!'
+                    raise Exception('Can`t enter bootloader !!!')
 
             def exit_boot():
                 for i in range(4):
@@ -210,12 +210,14 @@ def main():
                         print(f'in program: {i}')
                         break
                 else:
-                    raise 'Can`t exit bootloader !!!'
+                    raise Exception('Can`t exit bootloader !!!')
 
             if args.test:
+            #==========================================================================================
                 enter_boot()
                 exit_boot()
             elif args.read:                    
+            #==========================================================================================
                 enter_boot()
                 try:
                     if args.endmemory < 0x08000000: 
@@ -231,6 +233,7 @@ def main():
                 finally:
                     exit_boot()
             elif args.verify:                    
+            #==========================================================================================
                 enter_boot()
                 try:
                     print(f'verify: {args.verify}')
@@ -257,6 +260,7 @@ def main():
                 finally:
                     exit_boot()
             elif args.prog:
+            #==========================================================================================
                 enter_boot()
                 try:
                     print(f'program flash: {args.prog}')
@@ -269,7 +273,7 @@ def main():
                         # check file
                         (stak, enter) = struct.unpack('<LL', p[0:8])
                         if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
-                            raise f'bad file data stack: {stak:x} prog enter: {enter:x}'
+                            raise Exception(f'bad file data stack: {stak:x} prog enter: {enter:x}')
                         # start
                         with click.progressbar(range(args.beginmemory, args.beginmemory + len(p), PART_STD)) as bar:
                             for ma in bar:
@@ -287,5 +291,5 @@ def main():
 
 if __name__ == "__main__":
     parse_args()
-    print(args.com, args.adr, args.beginmemory, args.endmemory, args.test, args.verify, args.read, args.prog)
+    print(args.com, args.adr, hex(args.beginmemory), hex(args.endmemory), args.test, args.verify, args.read, args.prog)
     main()
