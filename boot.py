@@ -254,7 +254,7 @@ def main():
                                 if p[fileidx] != result.memory[i]:
                                     errcnt += 1
                                     ea = args.beginmemory+ma+i
-                                    print(f'\n{errcnt}: adr: {ea:x}-{fileidx:<20x} file|mem: {p[fileidx]:<3x}<> {result.memory[i]:<3x}')
+                                    print(f'\n{errcnt}) adr: {ea:x}-{fileidx:<20x} file|mem: {p[fileidx]:<3x}<> {result.memory[i]:<3x}')
                                     if errcnt > 15:
                                         break
                                 fileidx += 1
@@ -285,8 +285,10 @@ def main():
                                     break
                                 else:
                                     errcnt += 1
-                                    err = 0 or result.err
-                                    print(f'\n{i}) err at adr: {err:x}')                                
+                                    if isinstance(result, WriteRes):
+                                        print(f'\n{i}) err at adr: {result.err:x}')
+                                    else:
+                                        print(f'\n{i}) {result.message}')            
                     a = 'OK' if errcnt == 0 else 'BAD'
                     print(f'programm {a}')
                 finally:
