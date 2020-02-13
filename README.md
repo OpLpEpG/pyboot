@@ -2,13 +2,14 @@
 bootloader umdom devices (python)
 
 ### protocol modbus RTU
+user commands:
 ```
 CMD_BOOT=100
 CMD_READ=101
 CMD_BOOT_EXIT=102
 CMD_WRITE=103
 ```
-### py boot py -h
+### py boot.py -h
 ```
 usage: boot.py [-h] [-a ADR] [-b BEGINMEMORY] [-e ENDMEMORY] (-t | -fc | -r FILETOWRITE | -v VERIFY | -p PROG) [com]
 
