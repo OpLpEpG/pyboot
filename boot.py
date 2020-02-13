@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
-'''
-boot com_port adr -t,p,v,r file
-'''
 import argparse 
-import sys
-import asyncio 
+import struct
+import click
 from os import path
-from serial import Serial, threaded
 from serial.tools.list_ports import comports
-import threading
 
 from pymodbus.pdu import ModbusRequest, ModbusResponse, ModbusExceptions
 import pymodbus.framer.rtu_framer
 from pymodbus.client.sync import ModbusSerialClient as ModbusClient
-import struct
-
-import click
-
 
 # --------------------------------------------------------------------------- #
 # configure the client logging
@@ -26,14 +17,25 @@ logging.basicConfig()
 log = logging.getLogger()
 #log.setLevel(logging.DEBUG)
 
-class _AdrAction(argparse.Action):
+CMD_BOOT=100
+CMD_READ=101
+CMD_BOOT_EXIT=102
+CMD_WRITE=103
+MAGIC=0x12345678
+MEMORY_START=0x08001000
+MEMORY_END=0x08020000
+PART_STD=128
+BAUD=115200
+
+
+class AdrAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         if values not in range(1, 128):
             raise ValueError('device addres %d not in 1..127' % values)
         else: 
             namespace.adr = values 
 
-class _FileExistsAction(argparse.Action):
+class FileExistsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         v =str(values).strip()
         if path.exists(v) and path.isfile(v):                        
@@ -53,24 +55,24 @@ def parse_args():
         type=str, 
         nargs='?',
         default=ports[0] if ports else None,
-        help= "you mast select COM port, default=smalest number COM")
+        help= "COM port, default=smalest number COM")
     parser.add_argument(
         '-a','--adr', 
         type=int, 
         #nargs='?',
         default=1,
-        action=_AdrAction, 
-        help="you mast select device address 1 - 127, default=1")
+        action=AdrAction, 
+        help="device address 1 - 127, default=1")
     parser.add_argument(
         '-b','--beginmemory', 
         type=lambda x: int(x,0), 
         default=MEMORY_START,
-        help="you mast select device memory start address, default=0x08001000")
+        help="device memory start address, default=0x08001000")
     parser.add_argument(
         '-e','--endmemory', 
         type=lambda x: int(x,0), 
         default=MEMORY_END,
-        help="you mast select device end address or length, default=0x08020000")
+        help="device memory end address or length, default=0x08020000")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         '-t','--test', 
@@ -88,23 +90,14 @@ def parse_args():
     group.add_argument(
         '-v','--verify', 
         type=str, 
-        action=_FileExistsAction,
-        help="verivy device program")
+        action=FileExistsAction,
+        help="verify device program")
     group.add_argument(
         '-p','--prog', 
         type=str, 
-        action=_FileExistsAction,
+        action=FileExistsAction,
         help="program device")
     args = parser.parse_args()
-
-CMD_BOOT=100
-CMD_READ=101
-CMD_BOOT_EXIT=102
-CMD_WRITE=103
-MAGIC=0x12345678
-MEMORY_START=0x08001000
-MEMORY_END=0x08020000
-PART_STD=128
 
 class BootReq(ModbusRequest):
     function_code = CMD_BOOT
@@ -187,32 +180,32 @@ def main():
         else:
             print("COM ports not found!!!")  
     else:
-        BAUD=115200
         with ModbusClient(method='rtu', port=args.com, baudrate=BAUD) as client:
             client.register(BootRes)
             client.register(BootExitRes)
             client.register(ReadRes)
             client.register(WriteRes)
+
             def enter_boot():
                 for i in range(4):
-                    print(f'{i} send: enter boot ')
+                    print(f'{i}) SEND: enter boot ')
                     request = BootReq(unit=args.adr)
                     result = client.execute(request)
                     if isinstance(result, BootRes) and (result.magic == request.magic): 
-                        print(f'{i} read: magic ok! in boot')
+                        print(f'{i}) READ: magic ok! in boot')
                         break
                 else:
                     raise Exception('Can`t enter bootloader !!!')
 
             def exit_boot():
                 for i in range(4):
-                    print(f'exit boot: {i}')
+                    print(f'{i}) SEND: exit boot')
                     result = client.execute(BootExitReq(unit=args.adr))
                     if isinstance(result, BootExitRes): 
-                        print(f'in program: {i}')
+                        print(f'{i}) READ: in program')
                         break
                 else:
-                    raise Exception('Can`t exit bootloader !!!')
+                    raise Exception('Can`t enter program !!!')
 
             def loadFile(name)->bytearray:
                 with open(name,'rb') as f:
@@ -233,7 +226,7 @@ def main():
                 try:
                     if args.endmemory < 0x08000000: 
                         args.endmemory += args.beginmemory
-                    print(f'write: {args.read}')
+                    print(f'write: {args.read} from {args.beginmemory:x} to {args.endmemory:x} ')
                     with open(args.read,'wb') as f:
                         with click.progressbar(range(args.beginmemory, args.endmemory, PART_STD)) as bar:
                             for ma in bar:
@@ -265,37 +258,40 @@ def main():
                                     if errcnt > 15:
                                         break
                                 fileidx += 1
-                                if fileidx >= len(p):
-                                    break
-                        else:
-                            a = 'OK' if errcnt == 0 else 'BAD'
-                            print(f'\nverivy {a}')
+                    a = 'OK' if errcnt == 0 else 'BAD'
+                    print(f'verify {a}')
                 finally:
                     exit_boot()
             elif args.prog:
             #==========================================================================================
                 enter_boot()
+                errcnt=0
                 try:
                     p = loadFile(args.prog)
                     print(f'==== program flash: {args.prog} from {args.beginmemory:x} to {args.beginmemory+len(p):x}  ====')
                     # check file
                     (stak, enter) = struct.unpack('<LL', p[0:8])
                     if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
-                        raise Exception(f'bad file data stack: {stak:x} prog enter: {enter:x}')
+                        raise Exception(f'bad file data: stack: {stak:x} prog enter: {enter:x}')
                     # start
                     with click.progressbar(range(0, len(p), PART_STD)) as bar:
                         for ma in bar:
+                            if errcnt > 0:
+                                break
                             for i in range(5):
                                 request = WriteReq(args.beginmemory+ma, p[ma:ma+PART_STD], unit=args.adr)
                                 result = client.execute(request)
                                 if isinstance(result, WriteRes) and ((result.err == 0xFFFFFFFF) or (result.err == 0xFFFFFFFE)):
                                     break
                                 else:
-                                    print(f'{i}: err adr: {result.err:x}')                                
-                        else:
-                            print('programm OK')
+                                    errcnt += 1
+                                    err = 0 or result.err
+                                    print(f'\n{i}) err at adr: {err:x}')                                
+                    a = 'OK' if errcnt == 0 else 'BAD'
+                    print(f'programm {a}')
                 finally:
-                    exit_boot()
+                    if not errcnt: 
+                        exit_boot()
 
 if __name__ == "__main__":
     parse_args()
