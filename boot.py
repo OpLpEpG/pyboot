@@ -180,7 +180,8 @@ def main():
         else:
             print("COM ports not found!!!")  
     else:
-        with ModbusClient(method='rtu', port=args.com, baudrate=BAUD) as client:
+        with ModbusClient(method='rtu', port=args.com, baudrate=BAUD, timeout=0.5) as client:
+            #client.timeout = 0.3
             client.register(BootRes)
             client.register(BootExitRes)
             client.register(ReadRes)
@@ -196,6 +197,7 @@ def main():
                         break
                 else:
                     raise Exception('Can`t enter bootloader !!!')
+
 
             def exit_boot():
                 for i in range(4):

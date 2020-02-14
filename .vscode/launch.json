@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["COM8", "-a 27", "-p zephyr.bin"]
+            "args": ["COM8", "-a 27", "-t"]
         }
     ]
 }
