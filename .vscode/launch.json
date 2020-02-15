@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["COM8", "-a 27", "-t"]
+            "args": ["COM8", "-a 27", "-p d:\\Projects\\ZE\\blinky\\build\\zephyr\\zephyr.bin"]
         }
     ]
 }

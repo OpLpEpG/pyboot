@@ -59,7 +59,6 @@ def parse_args():
     parser.add_argument(
         '-a','--adr', 
         type=int, 
-        #nargs='?',
         default=1,
         action=AdrAction, 
         help="device address 1 - 127, default=1")
@@ -73,6 +72,10 @@ def parse_args():
         type=lambda x: int(x,0), 
         default=MEMORY_END,
         help="device memory end address or length, default=0x08020000")
+    parser.add_argument(
+        '-nv','--nocheckvt', 
+        action='store_true', 
+        help="not check vector table (file for programm)")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         '-t','--test', 
@@ -181,7 +184,6 @@ def main():
             print("COM ports not found!!!")  
     else:
         with ModbusClient(method='rtu', port=args.com, baudrate=BAUD, timeout=0.5) as client:
-            #client.timeout = 0.3
             client.register(BootRes)
             client.register(BootExitRes)
             client.register(ReadRes)
@@ -272,9 +274,10 @@ def main():
                     p = loadFile(args.prog)
                     print(f'==== program flash: {args.prog} from {args.beginmemory:x} to {args.beginmemory+len(p):x}  ====')
                     # check file
-                    (stak, enter) = struct.unpack('<LL', p[0:8])
-                    if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
-                        raise Exception(f'bad file data: stack: {stak:x} prog enter: {enter:x}')
+                    if not args.nocheckvt:
+                        (stak, enter) = struct.unpack('<LL', p[0:8])
+                        if not ((stak & 0xFFFF0000 == 0x20000000) and (enter & 0xFFF00000 == 0x08000000)):
+                            raise Exception(f'bad file data: stack: {stak:x} prog enter: {enter:x}')
                     # start
                     with click.progressbar(range(0, len(p), PART_STD)) as bar:
                         for ma in bar:
@@ -299,5 +302,5 @@ def main():
 
 if __name__ == "__main__":
     parse_args()
-    print(args.com, args.adr, hex(args.beginmemory), hex(args.endmemory), args.test, args.verify, args.read, args.prog)
+    #print(args.com, args.adr, hex(args.beginmemory), hex(args.endmemory), args.nocheckvt, args.test, args.verify, args.read, args.prog)
     main()
